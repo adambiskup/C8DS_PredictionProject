@@ -1,0 +1,142 @@
+---
+title: 'Coursera Data Science specialty.  Practical Macine Learning - Peer-graded Assignment: Prediction Assignment Writeup project.'
+author: "Adam Biskup"
+date: "11 August 2019"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+---
+
+
+```{r loading , echo=TRUE, message=FALSE, warning=FALSE, include=FALSE}
+# Declaration of libraries and option seting
+knitr::opts_chunk$set(echo = TRUE)
+Sys.setlocale("LC_ALL","English")   #
+library(dplyr)
+library(knitr)
+library(ggplot2)
+library(tidyr)
+library(lubridate)
+library(caret)
+library(randomForest)
+library(corrplot)
+```
+
+## Background of this document
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively.
+These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it.
+
+In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: [http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har](http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har) (see the section on the Weight Lifting Exercise Dataset).
+
+#### Data
+The training data for this project are available here: [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+The test data are available here: [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+## Purpose of this document
+The purpose of the document is to create - train and test - classifier which trained on training data will specify most probable class of examples from test set.
+
+## Loading data
+```{r data_processing}
+# Link to data file  
+csvUrlTrain  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+csvTrainFile <- "pml-training.csv"
+
+csvUrlTest  <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+csvTestFile <- "pml-testing.csv"
+
+# Downloading dataset
+if (!file.exists(csvTrainFile)) {
+	download.file(csvUrlTrain, csvTrainFile, mode = "wb") }
+if (!file.exists(csvTestFile)) {
+	download.file(csvUrlTest, csvTestFile, mode = "wb") }
+
+
+
+# Loading data - three different NA values
+DataTrain <- read.csv( csvTrainFile , na.strings= c("NA", "#DIV/0!", "") )
+DataTest  <- read.csv( csvTestFile  , na.strings= c("NA", "#DIV/0!", "") )
+
+```
+
+## Exploratory analysis of data
+```{r}
+dim(DataTrain)             #  Dimensions of dataset
+table(DataTrain$classe)    #  Balance of representation between classes
+str(DataTrain)             #  Structure of dataset
+summary(DataTrain)         # Characteristics of input variables
+
+```
+In the training dataset there are 159 input variables and 1 nominal output variable - classe.
+
+Some of the input variables are irrelevant or not related to classe, like date or timestamp, some of imnput features have missing or invalid values like "#DIV/0!", which means that dataset needs cleaning.
+
+Moreover some of input variables may be strongly correlated with each other, in spite of beiing correlated with classe variable, being that way redundant in the task of classification of classe.
+
+Such variables can be replaced by smaller set of variables being more informative/discriminatory in reference to output variable classe.
+```{r cleaning} 
+drop_columns <- c("X", "raw_timestamp_part_1" ,"raw_timestamp_part_2" , "cvtd_timestamp" , 
+                  "user_name" , "num_window")
+DataTrain <- DataTrain[ , !(names(DataTrain) %in% drop_columns)]
+DataTest  <- DataTest[ , !(names(DataTest) %in% drop_columns)]
+```
+
+```{r feature_selection}
+#-- Feature Selection --
+# looking for the near zero covariates(features)
+nzvFeatures <- nearZeroVar(DataTrain, saveMetrics = TRUE)
+nzvFeatures
+DataTrain <- DataTrain[,!nzvFeatures$nzv]
+DataTest <- DataTest[,!nzvFeatures$nzv]
+dim(DataTrain)
+
+# Removing features with NA values
+# Training and test file have one different (and last) output column - classe and problem_id, the rest is the same, we want to exclude common NA features
+DatTemp <- DataTrain[ , 1:117 ]
+featuresNotNA <-names( DatTemp[,colSums(is.na(DatTemp) ) == 0] )
+featuresNotNA
+
+# Re-creation of datasets
+DataTrain <- DataTrain[ , c( featuresNotNA,"classe" ) ]
+DataTest <- DataTest[ , c( featuresNotNA , "problem_id" ) ] 
+
+dim( DataTrain)
+dim( DataTest)
+```
+Characteristics of training data set after purge of statistically not related input columns to goal feature classe.
+```{r}
+dim(DataTrain)            
+str(DataTrain)
+summary(DataTrain)
+```
+
+
+```{r training_prep }
+# Partitioning of data for training model set  and validation of model set
+set.seed(3107)
+indTrain <- createDataPartition(DataTrain$classe, p = 4/5, list = FALSE)
+trainingSet <- DataTrain[indTrain, ]
+# create validation set for testing in sample error
+validationSet <- DataTrain[-indTrain, ]
+```
+
+```{r train_and test }
+# training RandomForest model
+rfModel <- randomForest( classe ~ . , data = trainingSet, importance = TRUE, ntrees = 10)
+rfModel
+
+#--- model validation
+# model tested on training sample
+pred_training <- predict( rfModel, trainingSet )
+confusionMatrix( pred_training, trainingSet$classe )
+# model tested on validation set
+pred_validation <- predict( rfModel, validationSet )
+confusionMatrix( pred_validation, validationSet$classe )
+
+# test set prediction
+pred_test <- predict( rfModel, DataTest )
+pred_test
+
+```
